@@ -23,7 +23,9 @@
   "web_accessible_resources": [
     {
       "resources": [
-        "*.wasm"
+        "*.wasm",
+        "bar/ncc_bar_content.html",
+        "bar/ncc_bar_content.js"
       ],
       "matches": [
         "<all_urls>"

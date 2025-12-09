@@ -44,6 +44,173 @@ chrome.runtime.onConnect.addListener((port) => {
 });
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === 'openSidePanel') {
+    try {
+      const tabId = sender.tab?.id;
+      if (tabId === undefined) {
+        sendResponse({ success: false, error: 'No sender tab id' });
+        return;
+      }
+      chrome.sidePanel
+        .open({ tabId })
+        .then(() => {
+          sendResponse({ success: true });
+        })
+        .catch((error) => {
+          console.warn('[ServiceWorker] Failed to open side panel:', error);
+          sendResponse({ success: false, error: String(error) });
+        });
+    } catch (error) {
+      console.warn('[ServiceWorker] Failed to open side panel:', error);
+      sendResponse({ success: false, error: String(error) });
+    }
+    return true;
+  }
+
+  // 从工具栏 iframe 转发 midsceneResultValue 到当前活动标签页的 content script
+  if (request.action === 'midsceneResultValue') {
+    const forwardToTab = (tid: number, value: string) => {
+      chrome.tabs.sendMessage(
+        tid,
+        { action: 'midsceneResultValue', value },
+        () => {
+          // 忽略回调错误（例如目标 tab 没有内容脚本）
+        },
+      );
+    };
+
+    const value = typeof request.value === 'string' ? request.value : '';
+
+    // 如果有 sender.tab.id，优先用它
+    if (sender.tab && sender.tab.id !== undefined) {
+      forwardToTab(sender.tab.id, value);
+      sendResponse({ success: true });
+      return true;
+    }
+
+    // 否则转发到当前活动 tab
+    chrome.tabs
+      .query({ active: true, lastFocusedWindow: true })
+      .then((tabs) => {
+        const active = tabs[0];
+        if (active?.id !== undefined) {
+          forwardToTab(active.id, value);
+        }
+        sendResponse({ success: true });
+      })
+      .catch(() => {
+        sendResponse({ success: false });
+      });
+    return true;
+  }
+
+  // 更新修复后的xpath路径到输入框
+  if (request.action === 'updateXPathInput') {
+    const updateXPath = (tid: number) => {
+      try {
+        chrome.scripting.executeScript({
+          target: { tabId: tid },
+          func: (value: string) => {
+            // 查找 ncc-bar iframe 并向其发送 postMessage 来更新 xpath input
+            const barFrame = document.getElementById('ncc-bar') as HTMLIFrameElement;
+            if (barFrame && barFrame.contentWindow) {
+              barFrame.contentWindow.postMessage({
+                type: 'updateXpath',
+                value: value
+              }, '*');
+            }
+          },
+          args: [String(request.value)],
+          world: 'ISOLATED',
+        });
+        sendResponse({ success: true });
+      } catch (error) {
+        console.warn('[ServiceWorker] Failed to update xpath input:', error);
+        sendResponse({ success: false, error: String(error) });
+      }
+    };
+
+    const senderTabId = sender.tab?.id;
+    if (senderTabId !== undefined && request.value !== undefined) {
+      updateXPath(senderTabId);
+      return true;
+    }
+
+    if (request.value !== undefined) {
+      chrome.tabs
+        .query({ active: true, lastFocusedWindow: true })
+        .then((tabs) => {
+          const active = tabs[0];
+          if (active?.id !== undefined) {
+            updateXPath(active.id);
+          } else {
+            sendResponse({ success: false, error: 'No active tab id' });
+          }
+        })
+        .catch((error) => {
+          sendResponse({ success: false, error: String(error) });
+        });
+      return true;
+    }
+
+    sendResponse({ success: false, error: 'No value provided' });
+    return true;
+  }
+
+  // Update injected result input with execution result
+  if (request.action === 'updateResultInput') {
+    const updateInput = (tid: number) => {
+      try {
+        chrome.scripting.executeScript({
+          target: { tabId: tid },
+          func: (value: string) => {
+            // 查找 ncc-bar iframe 并向其发送 postMessage 来更新 result input
+            const barFrame = document.getElementById('ncc-bar') as HTMLIFrameElement;
+            if (barFrame && barFrame.contentWindow) {
+              barFrame.contentWindow.postMessage({
+                type: 'updateResult',
+                value: value
+              }, '*');
+            }
+          },
+          args: [String(request.value)],
+          world: 'ISOLATED',
+        });
+        sendResponse({ success: true });
+      } catch (error) {
+        console.warn('[ServiceWorker] Failed to update result input:', error);
+        sendResponse({ success: false, error: String(error) });
+      }
+    };
+
+    const senderTabId = sender.tab?.id;
+    if (senderTabId !== undefined && request.value !== undefined) {
+      updateInput(senderTabId);
+      return true;
+    }
+
+    // Fallback to current active tab when sender.tab is undefined (e.g., from extension page)
+    if (request.value !== undefined) {
+      chrome.tabs
+        .query({ active: true, lastFocusedWindow: true })
+        .then((tabs) => {
+          const active = tabs[0];
+          if (active?.id !== undefined) {
+            updateInput(active.id);
+          } else {
+            sendResponse({ success: false, error: 'No active tab id' });
+          }
+        })
+        .catch((error) => {
+          sendResponse({ success: false, error: String(error) });
+        });
+      return true;
+    }
+
+    sendResponse({ success: false, error: 'No value provided' });
+    return true;
+  }
+
   // Handle screenshot capture request
   if (request.action === 'captureScreenshot') {
     if (sender.tab && sender.tab.id !== undefined) {
@@ -121,4 +288,27 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   // Return true to indicate we will send a response asynchronously
   return true;
+});
+
+
+// Additionally inject NCC Bar content script (separate listener; original kept intact)
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.status !== 'complete') return;
+  if (!tab.url) return;
+  const isHttp =
+    tab.url.startsWith('http://') || tab.url.startsWith('https://');
+  if (!isHttp) return;
+
+  try {
+    chrome.scripting.executeScript({
+      target: { tabId },
+      files: ['scripts/ncc-bar-content.js'],
+      world: 'ISOLATED',
+    });
+    // 注意：不再自动发送 refresh_page 消息
+    // content script 会在页面加载完成后自动调用 refresh_observer
+    // 如果需要手动触发，可以从其他地方发送 { action: 'refresh_page' } 消息
+  } catch (e) {
+    console.warn('[ServiceWorker] Failed to inject NCC Bar:', e);
+  }
 });

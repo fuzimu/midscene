@@ -374,6 +374,8 @@ export function UniversalPlayground({
             onRun={handleFormRun}
             onStop={handleStop}
             actionSpace={actionSpace}
+            // 让 PromptInput 内部可以在特定场景（如 aiAction）触发清空对话列表
+            onClearInfoList={clearInfoList}
           />
         </div>
 

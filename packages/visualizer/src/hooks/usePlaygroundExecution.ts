@@ -4,6 +4,7 @@ import { useEnvConfig } from '../store/store';
 import type {
   FormValue,
   InfoListItem,
+  PlaygroundResult,
   PlaygroundSDKLike,
   StorageProvider,
 } from '../types';
@@ -129,8 +130,27 @@ export function usePlaygroundExecution(
           }
         }
       } catch (e: any) {
-        result.error = e?.message || String(e);
-        console.error('Playground execution error:', e);
+        // result.error = e?.message || String(e);
+        // console.error('Playground execution error:', e);
+        // 将完整错误信息输出到 console.error
+        const errorMessage = e?.message || String(e);
+        console.warn('run response error:', errorMessage);
+        // 设置 result.error 为 "failed"，不保留详细错误信息
+        result.error = 'failed';
+      }
+      // 如果 result.error 是从 resultObj 中获取的（非 catch 块），也需要处理
+      let detailedErrorForConsole: string | null = null;
+      if (result.error && result.error !== 'failed' && result.error !== null) {
+        // 保存详细错误信息用于 console.error 输出
+        detailedErrorForConsole = result.error;
+        // 将详细错误输出到 console.error
+        console.error('Playground execution error:', {
+          error: detailedErrorForConsole,
+          actionType,
+          requestId: thisRunningId,
+        });
+        // 将详细错误替换为 "failed"
+        result.error = 'failed';
       }
 
       if (interruptedFlagRef.current[thisRunningId]) {
@@ -166,12 +186,22 @@ export function usePlaygroundExecution(
       );
 
       // Add result to list
+      // 如果有错误，content 和 result.error 都只显示 "failed"，详细错误已输出到 console.error
+      // 创建一个全新的 result 对象，确保 error 字段只包含 "failed" 或 null
+      const hasError = !!(result.error && result.error !== null && result.error !== undefined);
+      const resultForDisplay: PlaygroundResult = {
+        result: result.result,
+        dump: result.dump,
+        reportHTML: result.reportHTML,
+        error: hasError ? 'failed' : null,
+      };
+
       const resultItem: InfoListItem = {
         id: `result-${thisRunningId}`,
         type: 'result',
-        content: 'Execution result',
+        content: hasError ? 'failed' : 'Execution result',
         timestamp: new Date(),
-        result: result,
+        result: resultForDisplay,
         loading: false,
         replayScriptsInfo: replayInfo,
         replayCounter: counter,
@@ -188,6 +218,48 @@ export function usePlaygroundExecution(
         } catch (error) {
           console.error('Failed to save result:', error);
         }
+      }
+
+      // Serialize result.result to string for the injected input
+      const serializeResult = (result: any): string => {
+        if (result === null || result === undefined) {
+          return String(result);
+        }
+
+        if (typeof result === 'string') {
+          return result;
+        }
+
+        if (typeof result === 'number' || typeof result === 'boolean') {
+          return result.toString();
+        }
+
+        try {
+          return JSON.stringify(result, null, 2);
+        } catch (error) {
+          try {
+            return String(result);
+          } catch {
+            return '[Unserializable Result]';
+          }
+        }
+      };
+      const chromeRuntime = typeof window !== 'undefined' && (window as any).chrome?.runtime;
+      // Send result to Service Worker to update injected result input
+      try {
+        if (chromeRuntime && chromeRuntime.sendMessage) {
+          // 如果执行报错，同步 "failed" 而不是详细错误信息
+          const resultValue = result.error 
+            ? 'failed' 
+            : (result.result !== undefined ? serializeResult(result.result) : '');
+          chromeRuntime.sendMessage({
+            action: 'updateResultInput',
+            value: resultValue,
+          });
+        }
+      } catch (error) {
+        // Ignore errors if chrome.runtime is not available
+        console.warn('Failed to send result to Service Worker:', error);
       }
 
       // Add separator item to mark the end of this session
