@@ -35,15 +35,34 @@ export function PlaygroundPopup() {
   const [currentMode, setCurrentMode] = useState<
     'playground' | 'bridge' | 'recorder'
   >(() => {
-    const savedMode = localStorage.getItem(STORAGE_KEY);
-    return (savedMode as 'playground' | 'bridge' | 'recorder') || 'playground';
+    localStorage.setItem(STORAGE_KEY, 'playground');
+    return 'playground';
   });
 
-  const { config } = useEnvConfig();
-
+  const { config, loadConfig } = useEnvConfig();
+  const setDomIncluded = useEnvConfig((state) => state.setDomIncluded);
+  
   // Sync popupTab with saved mode on mount
   useEffect(() => {
     setPopupTab(currentMode);
+    setDomIncluded(true);
+    loadConfig(`
+      OPENAI_BASE_URL="https://dashscope.aliyuncs.com/compatible-mode/v1"
+      OPENAI_API_KEY="sk-d26d3681b3b74ec4bb8560cdcf84e943"
+      MIDSCENE_MODEL_NAME="qwen3-vl-flash"
+      MIDSCENE_USE_QWEN3_VL=1
+    `);
+    // 豆包大模型
+    // OPENAI_BASE_URL="https://ark.cn-beijing.volces.com/api/v3"
+    // OPENAI_API_KEY="d45fc7c0-1eb3-45e4-aea3-973fdf7b5e3e"
+    // MIDSCENE_MODEL_NAME="doubao-seed-code-preview-251028"
+    // MIDSCENE_USE_DOUBAO_VISION=1
+    // qwen大模型
+    // OPENAI_BASE_URL="https://dashscope.aliyuncs.com/compatible-mode/v1"
+    // OPENAI_API_KEY="sk-d26d3681b3b74ec4bb8560cdcf84e943"
+    // MIDSCENE_MODEL_NAME="qwen-vl-flash"
+    // MIDSCENE_USE_QWEN_VL=1
+    // localStorage.setItem('midscene-bridge-auto-connect','true');
   }, []);
 
   // Override AI configuration
@@ -135,7 +154,7 @@ export function PlaygroundPopup() {
 
   return (
     <ConfigProvider theme={globalThemeConfig()}>
-      <div className="popup-wrapper">
+      <div id="midscene-extension-sidebar" className="popup-wrapper">
         {/* top navigation bar */}
         <div className="popup-nav">
           <div className="nav-left">

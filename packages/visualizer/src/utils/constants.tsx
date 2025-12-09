@@ -43,7 +43,7 @@ export const apiMetadata = {
   aiWaitFor: { group: 'validation', title: 'Wait for a condition to be met' },
 };
 
-export const defaultMainButtons = ['aiAct', 'aiTap', 'aiQuery', 'aiAssert'];
+export const defaultMainButtons = ['aiAct','aiAsk', 'aiTap', 'aiQuery', 'aiAssert'];
 
 // welcome message template
 export const WELCOME_MESSAGE_TEMPLATE: Omit<InfoListItem, 'id' | 'timestamp'> =

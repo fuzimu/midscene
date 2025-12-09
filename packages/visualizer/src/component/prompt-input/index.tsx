@@ -30,6 +30,8 @@ import {
   isRunButtonEnabled as calculateIsRunButtonEnabled,
   getPlaceholderForType,
 } from '../../utils/playground-utils';
+import CryptoJS from 'crypto-js';
+import { AESDecryptor } from '../../utils/crypto-utils';
 import { ConfigSelector } from '../config-selector';
 import {
   BooleanField,
@@ -58,6 +60,7 @@ interface PromptInputProps {
   hideDomAndScreenshotOptions?: boolean; // Hide domIncluded and screenshotIncluded options
   actionSpace: DeviceAction<any>[]; // Required actionSpace for dynamic parameter detection
   deviceType?: DeviceType;
+  onClearInfoList?: () => void; // 清理 infoList 的回调
 }
 
 export const PromptInput: React.FC<PromptInputProps> = ({
@@ -74,6 +77,7 @@ export const PromptInput: React.FC<PromptInputProps> = ({
   actionSpace,
   hideDomAndScreenshotOptions = false,
   deviceType,
+  onClearInfoList,
 }) => {
   const [hoveringSettings, setHoveringSettings] = useState(false);
   const [promptValue, setPromptValue] = useState('');
@@ -524,7 +528,7 @@ export const PromptInput: React.FC<PromptInputProps> = ({
       timestamp: Date.now(),
     };
 
-    addHistory(newHistoryItem);
+    // addHistory(newHistoryItem);
 
     onRun();
 
@@ -583,7 +587,106 @@ export const PromptInput: React.FC<PromptInputProps> = ({
     },
     [handleRunWithHistory, isRunButtonEnabled],
   );
-
+  // 使用 ref 来存储最新的 handleRunWithHistory
+  const handleRunWithHistoryRef = useRef(handleRunWithHistory);
+  // 当 handleRunWithHistory 更新时，同步到 ref
+  useEffect(() => {
+    handleRunWithHistoryRef.current = handleRunWithHistory;
+  }, [handleRunWithHistory]);
+  // 修改消息监听器
+  useEffect(() => {
+    const handler = (request: any) => {
+      if (request && request.action === 'switchAction'){
+        const value = String(request.value ?? '');
+        // 如果没有找到 locate 字段，回退到设置 prompt
+        if (value){
+          form.setFieldsValue({ type: value});
+        }
+        // 设置一个全局变量action_type为value
+        localStorage.setItem('action_type', value);
+      } else if (request && request.action === 'setPrompt') {
+        // 调用 clearInfoList，清空 infoList（等价于点击清理按钮）
+        onClearInfoList?.();
+        const value = String(request.value ?? '');
+        if(value.length>0){
+          // 设置 lastHistoryRef 为 null，防止 useEffect 用历史记录覆盖
+          lastHistoryRef.current = null;
+          let decryptedValue = value;
+          try {
+            // 仅当明确是加密串或后端标记了加密时再解密
+            if (typeof value === 'string' && value) {
+                const decryptor = new AESDecryptor();
+                const key = 'repairXpath12345';
+                const iv = 'repairXpath12345';
+                const result = decryptor.decrypt(value, {
+                  key,
+                  iv,
+                  mode: CryptoJS.mode.CBC,
+                  padding: CryptoJS.pad.Pkcs7
+                });
+                if (result.success) {
+                  decryptedValue = result.data;
+                } else {
+                  console.error('解密失败:', result.error);
+                  decryptedValue = value;
+                }
+            }
+          } catch {
+            // 解密失败回退原值，避免中断
+            decryptedValue = value;
+          }
+          setPromptValue(decryptedValue);
+          const actionType = localStorage.getItem('action_type') || 'aiAsk';
+          if (actionType === "aiAsk"){
+            // 不需要结构化参数，直接设置 prompt
+            form.setFieldsValue({ type:"aiAsk", prompt: decryptedValue });
+          }else if(actionType === "aiAct"){
+            // 不需要结构化参数，直接设置 prompt
+            form.setFieldsValue({ type:"aiAct", prompt: decryptedValue });
+          }else if(actionType === "aiRightClick"){
+            // aiRightClick 需要结构化参数，设置 params.locate
+            form.setFieldsValue({ 
+              type:"aiRightClick", 
+              params: { locate: decryptedValue }
+            });
+          }
+        }
+      } else if (request && request.action === 'runThePrompt'){
+        // 延迟执行，确保表单值已经更新（setFieldsValue 是异步的）
+        setTimeout(() => {
+          // 从 form 中获取当前的 prompt 值，确保获取最新值
+          const currentValues = form.getFieldsValue() as {
+            type: string;
+            prompt?: string;
+            params?: Record<string, unknown>;
+          };
+          const currentPrompt = currentValues.prompt || '';
+          // 对于结构化参数，检查 params 中是否有值
+          const hasParams = currentValues.params && Object.keys(currentValues.params).length > 0 && 
+            Object.values(currentValues.params).some(v => v !== undefined && v !== null && v !== '');
+          const hasPromptValue = currentPrompt.length > 0 || hasParams;
+          //如果prompt或params有值，则执行handleRunWithHistory
+          if(hasPromptValue){
+            handleRunWithHistoryRef.current();
+          }
+        }, 100); // 延迟 100ms 确保表单值已更新
+      }
+    };                                            
+    try {
+      // @ts-ignore
+      chrome?.runtime?.onMessage?.addListener(handler);
+    } catch (e) {
+      // ignore
+    }
+    return () => {
+      try {
+        // @ts-ignore
+        chrome?.runtime?.onMessage?.removeListener(handler);
+      } catch (e) {
+        // ignore
+      }
+    };
+  }, [form, handleRunWithHistoryRef, actionSpace]);
   // Handle key events for structured params
   const handleStructuredKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
