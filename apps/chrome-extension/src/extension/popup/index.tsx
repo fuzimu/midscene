@@ -47,15 +47,15 @@ export function PlaygroundPopup() {
     setPopupTab(currentMode);
     setDomIncluded(true);
     loadConfig(`
-      OPENAI_BASE_URL="https://dashscope.aliyuncs.com/compatible-mode/v1"
-      OPENAI_API_KEY="sk-d26d3681b3b74ec4bb8560cdcf84e943"
-      MIDSCENE_MODEL_NAME="qwen3-vl-flash"
-      MIDSCENE_USE_QWEN3_VL=1
+      OPENAI_BASE_URL="https://ark.cn-beijing.volces.com/api/v3"
+      OPENAI_API_KEY="d45fc7c0-1eb3-45e4-aea3-973fdf7b5e3e"
+      MIDSCENE_MODEL_NAME="doubao-seed-1-6-flash-250828"
+      MIDSCENE_USE_DOUBAO_VISION=1
     `);
     // 豆包大模型
     // OPENAI_BASE_URL="https://ark.cn-beijing.volces.com/api/v3"
     // OPENAI_API_KEY="d45fc7c0-1eb3-45e4-aea3-973fdf7b5e3e"
-    // MIDSCENE_MODEL_NAME="doubao-seed-code-preview-251028"
+    // MIDSCENE_MODEL_NAME="doubao-seed-1-6-flash-250828"
     // MIDSCENE_USE_DOUBAO_VISION=1
     // qwen大模型
     // OPENAI_BASE_URL="https://dashscope.aliyuncs.com/compatible-mode/v1"
